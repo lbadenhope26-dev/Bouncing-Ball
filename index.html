@@ -79,7 +79,7 @@
             font-weight: bold;
         }
         #out-te {
-            color: #2ecc71; /* Highlight total energy so it stands out */
+            color: #2ecc71; 
         }
         .energy-bars {
             display: flex;
@@ -183,6 +183,11 @@
             <input type="range" id="sl-bounce" min="0" max="1" step="0.05" value="0.75">
         </div>
 
+        <div class="control-group">
+            <label>Air Resistance (Drag) <span id="val-drag">0.00</span></label>
+            <input type="range" id="sl-drag" min="0" max="2" step="0.05" value="0.00">
+        </div>
+
         <button onclick="resetSim()">Drop Ball</button>
 
         <h3>Live Telemetry</h3>
@@ -244,6 +249,7 @@
     const slGravity = document.getElementById('sl-gravity');
     const slMass = document.getElementById('sl-mass');
     const slBounce = document.getElementById('sl-bounce');
+    const slDrag = document.getElementById('sl-drag');
 
     const outH = document.getElementById('out-h');
     const outV = document.getElementById('out-v');
@@ -262,6 +268,7 @@
         document.getElementById('val-gravity').innerText = slGravity.value;
         document.getElementById('val-mass').innerText = slMass.value;
         document.getElementById('val-bounce').innerText = slBounce.value;
+        document.getElementById('val-drag').innerText = parseFloat(slDrag.value).toFixed(2);
     }
 
     [slHeight, slGravity, slMass].forEach(el => {
@@ -271,7 +278,7 @@
         });
     });
     
-    [slSpeed, slBounce].forEach(el => {
+    [slSpeed, slBounce, slDrag].forEach(el => {
         el.addEventListener('input', updateSliderLabels); 
     });
 
@@ -352,12 +359,19 @@
         const g = parseFloat(slGravity.value);
         const m = parseFloat(slMass.value);
         const restitution = parseFloat(slBounce.value);
+        const dragCoeff = parseFloat(slDrag.value);
 
         if (!state.isResting && speedScale > 0) {
-            let next_y = state.y + (state.v * dt) - (0.5 * g * dt * dt);
-            let next_v = state.v - g * dt;
+            
+            // Calculate trajectory direction, including drag acceleration against the velocity
+            let drag_accel = -(dragCoeff * state.v * Math.abs(state.v)) / m;
+            let total_accel = -g + drag_accel;
+            
+            let next_y = state.y + (state.v * dt) + (0.5 * total_accel * dt * dt);
+            let next_v = state.v + total_accel * dt;
 
             if (next_y <= 0) {
+                // Ground collision
                 state.y = 0;
                 state.pe = 0;
                 
@@ -373,19 +387,36 @@
                     let v_impact = Math.sqrt(2 * impact_ke / m);
                     state.v = v_impact * restitution; 
                     state.ke = 0.5 * m * state.v * state.v;
+                    // Remaining kinetic energy is lost as heat to the floor
                     state.thermal = state.totalInitialEnergy - state.ke;
                 }
             } else {
+                // Mid-air flight
                 state.y = next_y;
                 state.pe = m * g * state.y;
+                
+                // Continuous Air Resistance (Drag) calculation
+                // Calculates the exact mechanical energy lost this frame and adds it directly to Thermal
+                let energy_lost_to_drag = dragCoeff * (state.v * state.v) * dt;
+                state.thermal += energy_lost_to_drag;
+
                 let expected_ke = state.totalInitialEnergy - state.thermal - state.pe;
                 
                 if (expected_ke <= 0) {
+                    // Ball reached apex or drag stopped it entirely
                     state.ke = 0;
                     state.v = 0;
-                    state.y = (state.totalInitialEnergy - state.thermal) / (m * g);
-                    state.pe = state.totalInitialEnergy - state.thermal;
+                    
+                    // Math fallback: If drag over-drained the energy and expected_ke is negative, 
+                    // we lock the height to match the remaining Thermal energy perfectly to prevent glitches.
+                    if (state.pe > state.totalInitialEnergy - state.thermal) {
+                        state.pe = state.totalInitialEnergy - state.thermal;
+                        state.y = state.pe / (m * g); 
+                    } else {
+                        state.thermal = state.totalInitialEnergy - state.pe;
+                    }
                 } else {
+                    // Continue flight
                     state.ke = expected_ke;
                     let direction = Math.sign(next_v) === 0 ? 1 : Math.sign(next_v);
                     state.v = direction * Math.sqrt(2 * expected_ke / m);
@@ -404,7 +435,7 @@
             }
         }
 
-        ctx.fillStyle = `rgba(0, 0, 0, 0.5)`; // Hardcoded ghost trails
+        ctx.fillStyle = `rgba(0, 0, 0, 0.5)`;
         ctx.fillRect(0, 0, canvas.width, canvas.height);
 
         ctx.fillStyle = '#444';
@@ -432,8 +463,6 @@
         outH.innerText = state.y.toFixed(2) + " m";
         outV.innerText = Math.abs(state.v).toFixed(2) + " m/s";
         
-        // This calculates the display values explicitly to prevent 
-        // 0.01 discrepancies due to decimal rounding in the DOM
         let displayPE = parseFloat(state.pe.toFixed(2));
         let displayKE = parseFloat(state.ke.toFixed(2));
         
