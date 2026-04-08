@@ -19,6 +19,11 @@
             gap: 20px;
             max-width: 1000px;
         }
+        .left-col {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
         canvas {
             background-color: #000;
             border: 2px solid #444;
@@ -97,6 +102,16 @@
             line-height: 20px;
             text-shadow: 1px 1px 2px black;
         }
+        .graph-header {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.8em;
+            color: #aaa;
+            margin-bottom: -10px;
+        }
+        .legend span {
+            margin-left: 10px;
+        }
         button {
             background-color: #3498db;
             color: white;
@@ -113,7 +128,19 @@
 <body>
 
 <div class="container">
-    <canvas id="simCanvas" width="400" height="600"></canvas>
+    <div class="left-col">
+        <canvas id="simCanvas" width="400" height="450"></canvas>
+        
+        <div class="graph-header">
+            <span>Energy over Time (Last 400 frames)</span>
+            <div class="legend">
+                <span style="color: #3498db;">■ PE</span>
+                <span style="color: #e74c3c;">■ KE</span>
+                <span style="color: #f1c40f;">■ Thermal</span>
+            </div>
+        </div>
+        <canvas id="graphCanvas" width="400" height="150"></canvas>
+    </div>
 
     <div class="panel">
         <h3>Simulation Parameters</h3>
@@ -174,24 +201,26 @@
 <script>
     const canvas = document.getElementById('simCanvas');
     const ctx = canvas.getContext('2d');
+    
+    const graphCanvas = document.getElementById('graphCanvas');
+    const graphCtx = graphCanvas.getContext('2d');
 
-    // Physical to Pixel Scale (1 meter = 50 pixels)
-    const SCALE = 50; 
+    const SCALE = 40; // Adjusted scale to fit slightly shorter canvas
     const GROUND_Y = canvas.height - 20;
     const RADIUS = 15;
+    const MAX_GRAPH_POINTS = 400;
 
-    // Simulation State
     let state = {
-        y: 8,       // position in meters (from ground up)
-        v: 0,       // velocity in m/s
+        y: 8,       
+        v: 0,       
         pe: 0,
         ke: 0,
         thermal: 0,
         totalInitialEnergy: 0,
-        isResting: false
+        isResting: false,
+        history: [] // Stores energy values over time
     };
 
-    // DOM Elements
     const slHeight = document.getElementById('sl-height');
     const slGravity = document.getElementById('sl-gravity');
     const slMass = document.getElementById('sl-mass');
@@ -207,7 +236,6 @@
     const barKE = document.getElementById('bar-ke');
     const barTH = document.getElementById('bar-th');
 
-    // Sync UI text with sliders
     function updateSliderLabels() {
         document.getElementById('val-height').innerText = slHeight.value;
         document.getElementById('val-gravity').innerText = slGravity.value;
@@ -217,7 +245,6 @@
             slTrails.value == 0 ? "Off" : (slTrails.value > 0.7 ? "Long" : "Medium");
     }
 
-    // Add event listeners to force reset when system parameters change
     [slHeight, slGravity, slMass].forEach(el => {
         el.addEventListener('input', () => {
             updateSliderLabels();
@@ -236,19 +263,63 @@
         state.y = h;
         state.v = 0;
         state.isResting = false;
-        
-        // E = mgh
-        state.totalInitialEnergy = m * g * h;
         state.thermal = 0;
+        state.totalInitialEnergy = m * g * h;
+        state.history = []; // Clear graph history
         
-        // Clear screen instantly
         ctx.fillStyle = "black";
         ctx.fillRect(0, 0, canvas.width, canvas.height);
     }
 
+    function drawGraph() {
+        // Clear graph canvas
+        graphCtx.fillStyle = '#1a1a1a';
+        graphCtx.fillRect(0, 0, graphCanvas.width, graphCanvas.height);
+
+        if (state.history.length === 0) return;
+
+        const w = graphCanvas.width;
+        const h = graphCanvas.height;
+        const padding = 10;
+        const plotHeight = h - (padding * 2);
+        
+        // Prevent divide by zero if energy is 0
+        const maxE = state.totalInitialEnergy > 0 ? state.totalInitialEnergy : 1; 
+
+        // Helper to draw a line
+        const plotLine = (key, color) => {
+            graphCtx.beginPath();
+            graphCtx.strokeStyle = color;
+            graphCtx.lineWidth = 2;
+            
+            for (let i = 0; i < state.history.length; i++) {
+                const x = (i / MAX_GRAPH_POINTS) * w;
+                // Invert Y axis so higher energy is at the top
+                const y = h - padding - (state.history[i][key] / maxE) * plotHeight;
+                
+                if (i === 0) graphCtx.moveTo(x, y);
+                else graphCtx.lineTo(x, y);
+            }
+            graphCtx.stroke();
+        };
+
+        // Draw the total initial energy ceiling (dotted line)
+        graphCtx.beginPath();
+        graphCtx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+        graphCtx.setLineDash([5, 5]);
+        graphCtx.moveTo(0, padding);
+        graphCtx.lineTo(w, padding);
+        graphCtx.stroke();
+        graphCtx.setLineDash([]); // Reset to solid
+
+        // Plot lines
+        plotLine('thermal', '#f1c40f');
+        plotLine('pe', '#3498db');
+        plotLine('ke', '#e74c3c');
+    }
+
     let lastTime = 0;
     function loop(timestamp) {
-        // Delta time setup (cap at 0.05s to prevent huge jumps if tab is inactive)
         let dt = (timestamp - lastTime) / 1000;
         if (dt > 0.05) dt = 0.05;
         if (!lastTime) dt = 0.016;
@@ -259,24 +330,24 @@
         const restitution = parseFloat(slBounce.value);
         const trailsAlpha = 1 - parseFloat(slTrails.value);
 
-        // PHYSICS STEP (Semi-Implicit Euler)
+        // PHYSICS STEP
         if (!state.isResting) {
-            // Apply gravity to velocity
             state.v -= g * dt;
-            // Apply velocity to position
             state.y += state.v * dt;
 
             // Collision with ground
             if (state.y <= 0) {
                 state.y = 0;
                 
-                // If velocity is very low, consider it resting to stop jitter
                 if (Math.abs(state.v) < 0.5) {
+                    state.thermal += 0.5 * m * (state.v * state.v);
                     state.v = 0;
                     state.isResting = true;
                 } else {
-                    // Bounce
+                    let ke_before = 0.5 * m * (state.v * state.v);
                     state.v = -state.v * restitution;
+                    let ke_after = 0.5 * m * (state.v * state.v);
+                    state.thermal += (ke_before - ke_after);
                 }
             }
         }
@@ -284,23 +355,25 @@
         // ENERGY CALCULATIONS
         state.pe = m * g * state.y;
         state.ke = 0.5 * m * (state.v * state.v);
-        
-        // Conservation of Energy: Thermal is whatever is missing from the initial total
-        // (Ensures the bars always perfectly add up to 100% despite floating point rounding)
-        state.thermal = state.totalInitialEnergy - state.pe - state.ke;
-        if (state.thermal < 0) state.thermal = 0; 
-        if (state.isResting) {
-            state.pe = 0;
-            state.ke = 0;
-            state.thermal = state.totalInitialEnergy;
+        let currentTotalEnergy = state.pe + state.ke + state.thermal;
+
+        // GRAPH DATA RECORDING
+        if (!state.isResting || state.history.length < MAX_GRAPH_POINTS) {
+            state.history.push({
+                pe: state.pe,
+                ke: state.ke,
+                thermal: state.thermal
+            });
+            // Keep array size capped
+            if (state.history.length > MAX_GRAPH_POINTS) {
+                state.history.shift();
+            }
         }
 
-        // RENDER STEP
-        // Ghost Trails effect
+        // RENDER SIMULATION
         ctx.fillStyle = `rgba(0, 0, 0, ${trailsAlpha})`;
         ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-        // Draw Ground
         ctx.fillStyle = '#444';
         ctx.fillRect(0, GROUND_Y, canvas.width, canvas.height - GROUND_Y);
         ctx.strokeStyle = '#666';
@@ -309,7 +382,6 @@
         ctx.lineTo(canvas.width, GROUND_Y);
         ctx.stroke();
 
-        // Draw Ball
         const pixelY = GROUND_Y - (state.y * SCALE) - RADIUS;
         ctx.beginPath();
         ctx.arc(canvas.width / 2, pixelY, RADIUS, 0, Math.PI * 2);
@@ -319,15 +391,18 @@
         ctx.lineWidth = 2;
         ctx.stroke();
 
+        // RENDER GRAPH
+        drawGraph();
+
         // UI UPDATE STEP
         outH.innerText = state.y.toFixed(2) + " m";
         outV.innerText = Math.abs(state.v).toFixed(2) + " m/s";
-        outTe.innerText = state.totalInitialEnergy.toFixed(1) + " J";
+        outTe.innerText = currentTotalEnergy.toFixed(1) + " J";
         outTh.innerText = state.thermal.toFixed(1) + " J";
 
-        const pePct = (state.pe / state.totalInitialEnergy) * 100;
-        const kePct = (state.ke / state.totalInitialEnergy) * 100;
-        const thPct = (state.thermal / state.totalInitialEnergy) * 100;
+        const pePct = (state.pe / currentTotalEnergy) * 100;
+        const kePct = (state.ke / currentTotalEnergy) * 100;
+        const thPct = (state.thermal / currentTotalEnergy) * 100;
 
         barPE.style.width = (isNaN(pePct) ? 0 : pePct) + "%";
         barKE.style.width = (isNaN(kePct) ? 0 : kePct) + "%";
@@ -336,7 +411,6 @@
         requestAnimationFrame(loop);
     }
 
-    // Initialize
     updateSliderLabels();
     resetSim();
     requestAnimationFrame(loop);
