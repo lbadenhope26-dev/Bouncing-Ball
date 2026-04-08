@@ -111,6 +111,7 @@
         }
         .legend span {
             margin-left: 10px;
+            font-weight: bold;
         }
         button {
             background-color: #3498db;
@@ -129,17 +130,17 @@
 
 <div class="container">
     <div class="left-col">
-        <canvas id="simCanvas" width="400" height="450"></canvas>
+        <canvas id="simCanvas" width="400" height="400"></canvas>
         
         <div class="graph-header">
-            <span>Energy over Time (Last 400 frames)</span>
+            <span>Energy Stacked Area Chart (Scrolling)</span>
             <div class="legend">
                 <span style="color: #3498db;">■ PE</span>
                 <span style="color: #e74c3c;">■ KE</span>
                 <span style="color: #f1c40f;">■ Thermal</span>
             </div>
         </div>
-        <canvas id="graphCanvas" width="400" height="150"></canvas>
+        <canvas id="graphCanvas" width="400" height="180"></canvas>
     </div>
 
     <div class="panel">
@@ -174,247 +175,4 @@
 
         <h3>Live Telemetry</h3>
         <div class="readout">
-            <div>Height: <span id="out-h">0.00 m</span></div>
-            <div>Speed: <span id="out-v">0.00 m/s</span></div>
-            <div>Total Energy: <span id="out-te">0.0 J</span></div>
-            <div>Thermal: <span id="out-th">0.0 J</span></div>
-        </div>
-
-        <h3>Energy Breakdown</h3>
-        <div class="energy-bars">
-            <div class="bar-container">
-                <div class="bar" id="bar-pe"></div>
-                <div class="bar-label">Potential Energy</div>
-            </div>
-            <div class="bar-container">
-                <div class="bar" id="bar-ke"></div>
-                <div class="bar-label">Kinetic Energy</div>
-            </div>
-            <div class="bar-container">
-                <div class="bar" id="bar-th"></div>
-                <div class="bar-label">Thermal Energy</div>
-            </div>
-        </div>
-    </div>
-</div>
-
-<script>
-    const canvas = document.getElementById('simCanvas');
-    const ctx = canvas.getContext('2d');
-    
-    const graphCanvas = document.getElementById('graphCanvas');
-    const graphCtx = graphCanvas.getContext('2d');
-
-    const SCALE = 40; // Adjusted scale to fit slightly shorter canvas
-    const GROUND_Y = canvas.height - 20;
-    const RADIUS = 15;
-    const MAX_GRAPH_POINTS = 400;
-
-    let state = {
-        y: 8,       
-        v: 0,       
-        pe: 0,
-        ke: 0,
-        thermal: 0,
-        totalInitialEnergy: 0,
-        isResting: false,
-        history: [] // Stores energy values over time
-    };
-
-    const slHeight = document.getElementById('sl-height');
-    const slGravity = document.getElementById('sl-gravity');
-    const slMass = document.getElementById('sl-mass');
-    const slBounce = document.getElementById('sl-bounce');
-    const slTrails = document.getElementById('sl-trails');
-
-    const outH = document.getElementById('out-h');
-    const outV = document.getElementById('out-v');
-    const outTe = document.getElementById('out-te');
-    const outTh = document.getElementById('out-th');
-
-    const barPE = document.getElementById('bar-pe');
-    const barKE = document.getElementById('bar-ke');
-    const barTH = document.getElementById('bar-th');
-
-    function updateSliderLabels() {
-        document.getElementById('val-height').innerText = slHeight.value;
-        document.getElementById('val-gravity').innerText = slGravity.value;
-        document.getElementById('val-mass').innerText = slMass.value;
-        document.getElementById('val-bounce').innerText = slBounce.value;
-        document.getElementById('val-trails').innerText = 
-            slTrails.value == 0 ? "Off" : (slTrails.value > 0.7 ? "Long" : "Medium");
-    }
-
-    [slHeight, slGravity, slMass].forEach(el => {
-        el.addEventListener('input', () => {
-            updateSliderLabels();
-            resetSim();
-        });
-    });
-    [slBounce, slTrails].forEach(el => {
-        el.addEventListener('input', updateSliderLabels);
-    });
-
-    function resetSim() {
-        const h = parseFloat(slHeight.value);
-        const g = parseFloat(slGravity.value);
-        const m = parseFloat(slMass.value);
-
-        state.y = h;
-        state.v = 0;
-        state.isResting = false;
-        state.thermal = 0;
-        state.totalInitialEnergy = m * g * h;
-        state.history = []; // Clear graph history
-        
-        ctx.fillStyle = "black";
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-    }
-
-    function drawGraph() {
-        // Clear graph canvas
-        graphCtx.fillStyle = '#1a1a1a';
-        graphCtx.fillRect(0, 0, graphCanvas.width, graphCanvas.height);
-
-        if (state.history.length === 0) return;
-
-        const w = graphCanvas.width;
-        const h = graphCanvas.height;
-        const padding = 10;
-        const plotHeight = h - (padding * 2);
-        
-        // Prevent divide by zero if energy is 0
-        const maxE = state.totalInitialEnergy > 0 ? state.totalInitialEnergy : 1; 
-
-        // Helper to draw a line
-        const plotLine = (key, color) => {
-            graphCtx.beginPath();
-            graphCtx.strokeStyle = color;
-            graphCtx.lineWidth = 2;
-            
-            for (let i = 0; i < state.history.length; i++) {
-                const x = (i / MAX_GRAPH_POINTS) * w;
-                // Invert Y axis so higher energy is at the top
-                const y = h - padding - (state.history[i][key] / maxE) * plotHeight;
-                
-                if (i === 0) graphCtx.moveTo(x, y);
-                else graphCtx.lineTo(x, y);
-            }
-            graphCtx.stroke();
-        };
-
-        // Draw the total initial energy ceiling (dotted line)
-        graphCtx.beginPath();
-        graphCtx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
-        graphCtx.setLineDash([5, 5]);
-        graphCtx.moveTo(0, padding);
-        graphCtx.lineTo(w, padding);
-        graphCtx.stroke();
-        graphCtx.setLineDash([]); // Reset to solid
-
-        // Plot lines
-        plotLine('thermal', '#f1c40f');
-        plotLine('pe', '#3498db');
-        plotLine('ke', '#e74c3c');
-    }
-
-    let lastTime = 0;
-    function loop(timestamp) {
-        let dt = (timestamp - lastTime) / 1000;
-        if (dt > 0.05) dt = 0.05;
-        if (!lastTime) dt = 0.016;
-        lastTime = timestamp;
-
-        const g = parseFloat(slGravity.value);
-        const m = parseFloat(slMass.value);
-        const restitution = parseFloat(slBounce.value);
-        const trailsAlpha = 1 - parseFloat(slTrails.value);
-
-        // PHYSICS STEP
-        if (!state.isResting) {
-            state.v -= g * dt;
-            state.y += state.v * dt;
-
-            // Collision with ground
-            if (state.y <= 0) {
-                state.y = 0;
-                
-                if (Math.abs(state.v) < 0.5) {
-                    state.thermal += 0.5 * m * (state.v * state.v);
-                    state.v = 0;
-                    state.isResting = true;
-                } else {
-                    let ke_before = 0.5 * m * (state.v * state.v);
-                    state.v = -state.v * restitution;
-                    let ke_after = 0.5 * m * (state.v * state.v);
-                    state.thermal += (ke_before - ke_after);
-                }
-            }
-        }
-
-        // ENERGY CALCULATIONS
-        state.pe = m * g * state.y;
-        state.ke = 0.5 * m * (state.v * state.v);
-        let currentTotalEnergy = state.pe + state.ke + state.thermal;
-
-        // GRAPH DATA RECORDING
-        if (!state.isResting || state.history.length < MAX_GRAPH_POINTS) {
-            state.history.push({
-                pe: state.pe,
-                ke: state.ke,
-                thermal: state.thermal
-            });
-            // Keep array size capped
-            if (state.history.length > MAX_GRAPH_POINTS) {
-                state.history.shift();
-            }
-        }
-
-        // RENDER SIMULATION
-        ctx.fillStyle = `rgba(0, 0, 0, ${trailsAlpha})`;
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-        ctx.fillStyle = '#444';
-        ctx.fillRect(0, GROUND_Y, canvas.width, canvas.height - GROUND_Y);
-        ctx.strokeStyle = '#666';
-        ctx.beginPath();
-        ctx.moveTo(0, GROUND_Y);
-        ctx.lineTo(canvas.width, GROUND_Y);
-        ctx.stroke();
-
-        const pixelY = GROUND_Y - (state.y * SCALE) - RADIUS;
-        ctx.beginPath();
-        ctx.arc(canvas.width / 2, pixelY, RADIUS, 0, Math.PI * 2);
-        ctx.fillStyle = '#e74c3c';
-        ctx.fill();
-        ctx.strokeStyle = '#c0392b';
-        ctx.lineWidth = 2;
-        ctx.stroke();
-
-        // RENDER GRAPH
-        drawGraph();
-
-        // UI UPDATE STEP
-        outH.innerText = state.y.toFixed(2) + " m";
-        outV.innerText = Math.abs(state.v).toFixed(2) + " m/s";
-        outTe.innerText = currentTotalEnergy.toFixed(1) + " J";
-        outTh.innerText = state.thermal.toFixed(1) + " J";
-
-        const pePct = (state.pe / currentTotalEnergy) * 100;
-        const kePct = (state.ke / currentTotalEnergy) * 100;
-        const thPct = (state.thermal / currentTotalEnergy) * 100;
-
-        barPE.style.width = (isNaN(pePct) ? 0 : pePct) + "%";
-        barKE.style.width = (isNaN(kePct) ? 0 : kePct) + "%";
-        barTH.style.width = (isNaN(thPct) ? 0 : thPct) + "%";
-
-        requestAnimationFrame(loop);
-    }
-
-    updateSliderLabels();
-    resetSim();
-    requestAnimationFrame(loop);
-
-</script>
-</body>
-</html>
+            <div>Height:
