@@ -1,88 +1,346 @@
-import numpy as np
-import matplotlib.pyplot as plt
-from matplotlib.animation import FuncAnimation
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bouncing Ball Energy Simulation</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #1e1e1e;
+            color: #f0f0f0;
+            display: flex;
+            justify-content: center;
+            padding: 20px;
+            margin: 0;
+        }
+        .container {
+            display: flex;
+            gap: 20px;
+            max-width: 1000px;
+        }
+        canvas {
+            background-color: #000;
+            border: 2px solid #444;
+            border-radius: 8px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+        }
+        .panel {
+            background-color: #2d2d2d;
+            padding: 20px;
+            border-radius: 8px;
+            width: 350px;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+        .control-group {
+            display: flex;
+            flex-direction: column;
+        }
+        .control-group label {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.9em;
+            margin-bottom: 5px;
+            color: #aaa;
+        }
+        input[type="range"] {
+            width: 100%;
+        }
+        .readout {
+            background-color: #1a1a1a;
+            padding: 10px;
+            border-radius: 5px;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 0.9em;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+        .readout div {
+            display: flex;
+            flex-direction: column;
+        }
+        .readout span {
+            color: #4CAF50;
+            font-size: 1.2em;
+            font-weight: bold;
+        }
+        .energy-bars {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            margin-top: 10px;
+        }
+        .bar-container {
+            width: 100%;
+            height: 20px;
+            background-color: #444;
+            border-radius: 4px;
+            overflow: hidden;
+            position: relative;
+        }
+        .bar {
+            height: 100%;
+            width: 0%;
+            transition: width 0.05s linear;
+        }
+        #bar-pe { background-color: #3498db; }
+        #bar-ke { background-color: #e74c3c; }
+        #bar-th { background-color: #f1c40f; }
+        .bar-label {
+            position: absolute;
+            top: 0;
+            left: 5px;
+            font-size: 0.8em;
+            line-height: 20px;
+            text-shadow: 1px 1px 2px black;
+        }
+        button {
+            background-color: #3498db;
+            color: white;
+            border: none;
+            padding: 10px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+        button:hover { background-color: #2980b9; }
+    </style>
+</head>
+<body>
 
-# Constants
-g = 9.81
-dt = 0.01
-e = 0.8  # coefficient of restitution
+<div class="container">
+    <canvas id="simCanvas" width="400" height="600"></canvas>
 
-# Initial conditions
-y = 5.0
-v = 0.0
-mass = 1.0
-
-thermal_energy = 0
-
-# Data tracking
-ys = []
-ke_list = []
-pe_list = []
-te_list = []
-
-def step():
-    global y, v, thermal_energy
-    
-    # Update velocity and position
-    v -= g * dt
-    y += v * dt
-
-    # Bounce condition
-    if y <= 0:
-        y = 0
-        v_before = v
+    <div class="panel">
+        <h3>Simulation Parameters</h3>
         
-        KE_before = 0.5 * mass * v_before**2
+        <div class="control-group">
+            <label>Drop Height (m) <span id="val-height">8.0</span></label>
+            <input type="range" id="sl-height" min="1" max="10" step="0.1" value="8">
+        </div>
         
-        v = -e * v
-        KE_after = 0.5 * mass * v**2
+        <div class="control-group">
+            <label>Gravity (m/s²) <span id="val-gravity">9.8</span></label>
+            <input type="range" id="sl-gravity" min="1" max="20" step="0.1" value="9.8">
+        </div>
         
-        # Energy lost → thermal
-        thermal_energy += KE_before - KE_after
+        <div class="control-group">
+            <label>Mass (kg) <span id="val-mass">1.0</span></label>
+            <input type="range" id="sl-mass" min="0.1" max="10" step="0.1" value="1.0">
+        </div>
+        
+        <div class="control-group">
+            <label>Bounciness (Restitution) <span id="val-bounce">0.75</span></label>
+            <input type="range" id="sl-bounce" min="0" max="1" step="0.05" value="0.75">
+        </div>
 
-def energies():
-    KE = 0.5 * mass * v**2
-    PE = mass * g * y
-    return KE, PE
+        <div class="control-group">
+            <label>Ghost Trails <span id="val-trails">Medium</span></label>
+            <input type="range" id="sl-trails" min="0" max="0.95" step="0.05" value="0.5">
+        </div>
 
-# Setup plot
-fig, (ax1, ax2) = plt.subplots(2, 1)
+        <button onclick="resetSim()">Drop Ball</button>
 
-# Ball plot
-ball, = ax1.plot([], [], 'o', markersize=12)
-ax1.set_xlim(-1, 1)
-ax1.set_ylim(0, 6)
-ax1.set_title("Bouncing Ball")
+        <h3>Live Telemetry</h3>
+        <div class="readout">
+            <div>Height: <span id="out-h">0.00 m</span></div>
+            <div>Speed: <span id="out-v">0.00 m/s</span></div>
+            <div>Total Energy: <span id="out-te">0.0 J</span></div>
+            <div>Thermal: <span id="out-th">0.0 J</span></div>
+        </div>
 
-# Energy plot
-ke_line, = ax2.plot([], [], label="Kinetic")
-pe_line, = ax2.plot([], [], label="Potential")
-te_line, = ax2.plot([], [], label="Thermal")
-ax2.legend()
-ax2.set_xlim(0, 500)
-ax2.set_ylim(0, 60)
+        <h3>Energy Breakdown</h3>
+        <div class="energy-bars">
+            <div class="bar-container">
+                <div class="bar" id="bar-pe"></div>
+                <div class="bar-label">Potential Energy</div>
+            </div>
+            <div class="bar-container">
+                <div class="bar" id="bar-ke"></div>
+                <div class="bar-label">Kinetic Energy</div>
+            </div>
+            <div class="bar-container">
+                <div class="bar" id="bar-th"></div>
+                <div class="bar-label">Thermal Energy</div>
+            </div>
+        </div>
+    </div>
+</div>
 
-def update(frame):
-    step()
-    
-    KE, PE = energies()
-    
-    ys.append(y)
-    ke_list.append(KE)
-    pe_list.append(PE)
-    te_list.append(thermal_energy)
+<script>
+    const canvas = document.getElementById('simCanvas');
+    const ctx = canvas.getContext('2d');
 
-    # Update ball
-    ball.set_data([0], [y])
+    // Physical to Pixel Scale (1 meter = 50 pixels)
+    const SCALE = 50; 
+    const GROUND_Y = canvas.height - 20;
+    const RADIUS = 15;
 
-    # Update energy plots
-    ke_line.set_data(range(len(ke_list)), ke_list)
-    pe_line.set_data(range(len(pe_list)), pe_list)
-    te_line.set_data(range(len(te_list)), te_list)
+    // Simulation State
+    let state = {
+        y: 8,       // position in meters (from ground up)
+        v: 0,       // velocity in m/s
+        pe: 0,
+        ke: 0,
+        thermal: 0,
+        totalInitialEnergy: 0,
+        isResting: false
+    };
 
-    ax2.set_xlim(0, len(ke_list))
+    // DOM Elements
+    const slHeight = document.getElementById('sl-height');
+    const slGravity = document.getElementById('sl-gravity');
+    const slMass = document.getElementById('sl-mass');
+    const slBounce = document.getElementById('sl-bounce');
+    const slTrails = document.getElementById('sl-trails');
 
-    return ball, ke_line, pe_line, te_line
+    const outH = document.getElementById('out-h');
+    const outV = document.getElementById('out-v');
+    const outTe = document.getElementById('out-te');
+    const outTh = document.getElementById('out-th');
 
-ani = FuncAnimation(fig, update, frames=500, interval=20)
-plt.show()
+    const barPE = document.getElementById('bar-pe');
+    const barKE = document.getElementById('bar-ke');
+    const barTH = document.getElementById('bar-th');
+
+    // Sync UI text with sliders
+    function updateSliderLabels() {
+        document.getElementById('val-height').innerText = slHeight.value;
+        document.getElementById('val-gravity').innerText = slGravity.value;
+        document.getElementById('val-mass').innerText = slMass.value;
+        document.getElementById('val-bounce').innerText = slBounce.value;
+        document.getElementById('val-trails').innerText = 
+            slTrails.value == 0 ? "Off" : (slTrails.value > 0.7 ? "Long" : "Medium");
+    }
+
+    // Add event listeners to force reset when system parameters change
+    [slHeight, slGravity, slMass].forEach(el => {
+        el.addEventListener('input', () => {
+            updateSliderLabels();
+            resetSim();
+        });
+    });
+    [slBounce, slTrails].forEach(el => {
+        el.addEventListener('input', updateSliderLabels);
+    });
+
+    function resetSim() {
+        const h = parseFloat(slHeight.value);
+        const g = parseFloat(slGravity.value);
+        const m = parseFloat(slMass.value);
+
+        state.y = h;
+        state.v = 0;
+        state.isResting = false;
+        
+        // E = mgh
+        state.totalInitialEnergy = m * g * h;
+        state.thermal = 0;
+        
+        // Clear screen instantly
+        ctx.fillStyle = "black";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
+
+    let lastTime = 0;
+    function loop(timestamp) {
+        // Delta time setup (cap at 0.05s to prevent huge jumps if tab is inactive)
+        let dt = (timestamp - lastTime) / 1000;
+        if (dt > 0.05) dt = 0.05;
+        if (!lastTime) dt = 0.016;
+        lastTime = timestamp;
+
+        const g = parseFloat(slGravity.value);
+        const m = parseFloat(slMass.value);
+        const restitution = parseFloat(slBounce.value);
+        const trailsAlpha = 1 - parseFloat(slTrails.value);
+
+        // PHYSICS STEP (Semi-Implicit Euler)
+        if (!state.isResting) {
+            // Apply gravity to velocity
+            state.v -= g * dt;
+            // Apply velocity to position
+            state.y += state.v * dt;
+
+            // Collision with ground
+            if (state.y <= 0) {
+                state.y = 0;
+                
+                // If velocity is very low, consider it resting to stop jitter
+                if (Math.abs(state.v) < 0.5) {
+                    state.v = 0;
+                    state.isResting = true;
+                } else {
+                    // Bounce
+                    state.v = -state.v * restitution;
+                }
+            }
+        }
+
+        // ENERGY CALCULATIONS
+        state.pe = m * g * state.y;
+        state.ke = 0.5 * m * (state.v * state.v);
+        
+        // Conservation of Energy: Thermal is whatever is missing from the initial total
+        // (Ensures the bars always perfectly add up to 100% despite floating point rounding)
+        state.thermal = state.totalInitialEnergy - state.pe - state.ke;
+        if (state.thermal < 0) state.thermal = 0; 
+        if (state.isResting) {
+            state.pe = 0;
+            state.ke = 0;
+            state.thermal = state.totalInitialEnergy;
+        }
+
+        // RENDER STEP
+        // Ghost Trails effect
+        ctx.fillStyle = `rgba(0, 0, 0, ${trailsAlpha})`;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        // Draw Ground
+        ctx.fillStyle = '#444';
+        ctx.fillRect(0, GROUND_Y, canvas.width, canvas.height - GROUND_Y);
+        ctx.strokeStyle = '#666';
+        ctx.beginPath();
+        ctx.moveTo(0, GROUND_Y);
+        ctx.lineTo(canvas.width, GROUND_Y);
+        ctx.stroke();
+
+        // Draw Ball
+        const pixelY = GROUND_Y - (state.y * SCALE) - RADIUS;
+        ctx.beginPath();
+        ctx.arc(canvas.width / 2, pixelY, RADIUS, 0, Math.PI * 2);
+        ctx.fillStyle = '#e74c3c';
+        ctx.fill();
+        ctx.strokeStyle = '#c0392b';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        // UI UPDATE STEP
+        outH.innerText = state.y.toFixed(2) + " m";
+        outV.innerText = Math.abs(state.v).toFixed(2) + " m/s";
+        outTe.innerText = state.totalInitialEnergy.toFixed(1) + " J";
+        outTh.innerText = state.thermal.toFixed(1) + " J";
+
+        const pePct = (state.pe / state.totalInitialEnergy) * 100;
+        const kePct = (state.ke / state.totalInitialEnergy) * 100;
+        const thPct = (state.thermal / state.totalInitialEnergy) * 100;
+
+        barPE.style.width = (isNaN(pePct) ? 0 : pePct) + "%";
+        barKE.style.width = (isNaN(kePct) ? 0 : kePct) + "%";
+        barTH.style.width = (isNaN(thPct) ? 0 : thPct) + "%";
+
+        requestAnimationFrame(loop);
+    }
+
+    // Initialize
+    updateSliderLabels();
+    resetSim();
+    requestAnimationFrame(loop);
+
+</script>
+</body>
+</html>
