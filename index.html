@@ -17,7 +17,7 @@
         .container {
             display: flex;
             gap: 20px;
-            max-width: 1400px; /* Widened to fit three columns */
+            max-width: 1400px;
         }
         .left-col {
             display: flex;
@@ -28,7 +28,7 @@
             display: flex;
             flex-direction: column;
             gap: 15px;
-            width: 400px;
+            width: 500px; /* Widened slightly for better view */
         }
         canvas {
             background-color: #000;
@@ -142,29 +142,24 @@
 
     <div class="center-col">
         <div class="graph-header">
-            <span>Stacked Area Chart</span>
-            <div class="legend">
-                <span style="color: #3498db;">■ PE</span>
-                <span style="color: #e74c3c;">■ KE</span>
-                <span style="color: #f1c40f;">■ Thermal</span>
-            </div>
-        </div>
-        <canvas id="stackedGraphCanvas" width="400" height="180"></canvas>
-
-        <div class="graph-header" style="margin-top: 10px;">
-            <span>Line Graph (Independent Variables)</span>
+            <span>Energy Line Graph (Strict Conservation)</span>
             <div class="legend">
                 <span style="color: #3498db;">— PE</span>
                 <span style="color: #e74c3c;">— KE</span>
                 <span style="color: #f1c40f;">— Thermal</span>
             </div>
         </div>
-        <canvas id="lineGraphCanvas" width="400" height="180"></canvas>
+        <canvas id="lineGraphCanvas" width="500" height="370"></canvas>
     </div>
 
     <div class="panel">
         <h3>Simulation Parameters</h3>
         
+        <div class="control-group">
+            <label>Simulation Speed <span id="val-speed">1.0x</span></label>
+            <input type="range" id="sl-speed" min="0.1" max="3" step="0.1" value="1.0">
+        </div>
+
         <div class="control-group">
             <label>Drop Height (m) <span id="val-height">8.0</span></label>
             <input type="range" id="sl-height" min="1" max="10" step="0.1" value="8">
@@ -222,16 +217,13 @@
     const canvas = document.getElementById('simCanvas');
     const ctx = canvas.getContext('2d');
     
-    const stackedGraphCanvas = document.getElementById('stackedGraphCanvas');
-    const stackedCtx = stackedGraphCanvas.getContext('2d');
-
     const lineGraphCanvas = document.getElementById('lineGraphCanvas');
     const lineCtx = lineGraphCanvas.getContext('2d');
 
     const SCALE = 35; // Pixels per meter
     const GROUND_Y = canvas.height - 20;
     const RADIUS = 15;
-    const MAX_GRAPH_POINTS = 250; // Controls scrolling speed
+    const MAX_GRAPH_POINTS = 300; 
 
     let state = {
         y: 8,       
@@ -244,6 +236,7 @@
         history: [] 
     };
 
+    const slSpeed = document.getElementById('sl-speed');
     const slHeight = document.getElementById('sl-height');
     const slGravity = document.getElementById('sl-gravity');
     const slMass = document.getElementById('sl-mass');
@@ -260,6 +253,7 @@
     const barTH = document.getElementById('bar-th');
 
     function updateSliderLabels() {
+        document.getElementById('val-speed').innerText = parseFloat(slSpeed.value).toFixed(1) + "x";
         document.getElementById('val-height').innerText = slHeight.value;
         document.getElementById('val-gravity').innerText = slGravity.value;
         document.getElementById('val-mass').innerText = slMass.value;
@@ -274,8 +268,8 @@
             resetSim();
         });
     });
-    [slBounce, slTrails].forEach(el => {
-        el.addEventListener('input', updateSliderLabels);
+    [slSpeed, slBounce, slTrails].forEach(el => {
+        el.addEventListener('input', updateSliderLabels); 
     });
 
     function resetSim() {
@@ -287,44 +281,14 @@
         state.v = 0;
         state.isResting = false;
         state.thermal = 0;
-        state.totalInitialEnergy = m * g * h;
+        // The absolute total energy of the system
+        state.totalInitialEnergy = m * g * h; 
+        state.pe = state.totalInitialEnergy;
+        state.ke = 0;
         state.history = []; 
         
         ctx.fillStyle = "black";
         ctx.fillRect(0, 0, canvas.width, canvas.height);
-    }
-
-    function drawStackedGraph() {
-        stackedCtx.fillStyle = '#1a1a1a';
-        stackedCtx.fillRect(0, 0, stackedGraphCanvas.width, stackedGraphCanvas.height);
-        
-        if (state.history.length === 0) return;
-
-        const w = stackedGraphCanvas.width;
-        const h = stackedGraphCanvas.height;
-        const maxE = state.totalInitialEnergy || 1;
-
-        const drawLayer = (valFunc, color) => {
-            stackedCtx.beginPath();
-            stackedCtx.fillStyle = color;
-            stackedCtx.moveTo(0, h); 
-
-            for (let i = 0; i < state.history.length; i++) {
-                const x = (i / (MAX_GRAPH_POINTS - 1)) * w;
-                const val = valFunc(state.history[i]);
-                const y = h - (val / maxE) * h;
-                stackedCtx.lineTo(x, y);
-            }
-
-            const lastX = ((state.history.length - 1) / (MAX_GRAPH_POINTS - 1)) * w;
-            stackedCtx.lineTo(lastX, h);
-            stackedCtx.lineTo(0, h);
-            stackedCtx.fill();
-        };
-
-        drawLayer(pt => pt.thermal + pt.pe + pt.ke, '#e74c3c');
-        drawLayer(pt => pt.thermal + pt.pe, '#3498db');
-        drawLayer(pt => pt.thermal, '#f1c40f');
     }
 
     function drawLineGraph() {
@@ -335,23 +299,28 @@
 
         const w = lineGraphCanvas.width;
         const h = lineGraphCanvas.height;
-        const padding = 10;
+        const padding = 15;
         const plotHeight = h - (padding * 2);
         const maxE = state.totalInitialEnergy || 1;
 
-        // Draw dotted ceiling line for reference
+        // Draw dotted ceiling line for reference (Total Energy)
         lineCtx.beginPath();
-        lineCtx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+        lineCtx.strokeStyle = '#4CAF50';
         lineCtx.setLineDash([5, 5]);
         lineCtx.moveTo(0, padding);
         lineCtx.lineTo(w, padding);
         lineCtx.stroke();
         lineCtx.setLineDash([]);
+        
+        // Label the Total Energy line
+        lineCtx.fillStyle = '#4CAF50';
+        lineCtx.font = "12px sans-serif";
+        lineCtx.fillText("Total Energy (Constant)", 5, padding + 15);
 
         const drawLine = (key, color) => {
             lineCtx.beginPath();
             lineCtx.strokeStyle = color;
-            lineCtx.lineWidth = 2;
+            lineCtx.lineWidth = 2.5;
 
             for (let i = 0; i < state.history.length; i++) {
                 const x = (i / (MAX_GRAPH_POINTS - 1)) * w;
@@ -371,49 +340,81 @@
 
     let lastTime = 0;
     function loop(timestamp) {
-        let dt = (timestamp - lastTime) / 1000;
-        if (dt > 0.05) dt = 0.05; 
-        if (!lastTime) dt = 0.016;
+        let rawDt = (timestamp - lastTime) / 1000;
+        if (rawDt > 0.05) rawDt = 0.05; 
+        if (!lastTime) rawDt = 0.016;
         lastTime = timestamp;
+
+        const speedScale = parseFloat(slSpeed.value);
+        let dt = rawDt * speedScale;
 
         const g = parseFloat(slGravity.value);
         const m = parseFloat(slMass.value);
         const restitution = parseFloat(slBounce.value);
         const trailsAlpha = 1 - parseFloat(slTrails.value);
 
-        // PHYSICS EXACT KINEMATICS
-        if (!state.isResting) {
-            state.y += (state.v * dt) - (0.5 * g * dt * dt);
-            state.v -= g * dt;
+        // ENERGY-FORCED KINEMATICS (Prevents Drift)
+        if (!state.isResting && speedScale > 0) {
+            // Predict next position
+            let next_y = state.y + (state.v * dt) - (0.5 * g * dt * dt);
 
-            if (state.y <= 0) {
+            if (next_y <= 0) {
+                // Ball hits the ground
                 state.y = 0;
                 
-                if (Math.abs(state.v) < 0.5) {
-                    state.thermal += 0.5 * m * (state.v * state.v);
+                // At ground, PE = 0. So impact KE is exactly Total - Thermal
+                let impact_ke = state.totalInitialEnergy - state.thermal;
+                
+                // If velocity is tiny, put it to rest to prevent infinite micro-bounces
+                if ((2 * impact_ke / m) < 0.25) { 
+                    state.thermal = state.totalInitialEnergy; // All energy becomes thermal
+                    state.ke = 0;
+                    state.pe = 0;
                     state.v = 0;
                     state.isResting = true;
                 } else {
-                    let ke_before = 0.5 * m * (state.v * state.v);
-                    state.v = -state.v * restitution;
-                    let ke_after = 0.5 * m * (state.v * state.v);
-                    state.thermal += (ke_before - ke_after);
+                    // Perfect bounce calculation
+                    let v_impact = Math.sqrt(2 * impact_ke / m);
+                    state.v = v_impact * restitution; // Rebound velocity
+                    
+                    state.ke = 0.5 * m * state.v * state.v;
+                    state.pe = 0;
+                    // Any energy not in the new KE is explicitly forced into Thermal
+                    state.thermal = state.totalInitialEnergy - state.ke;
+                }
+            } else {
+                // Ball is in mid-air
+                let current_sign = Math.sign(state.v - g * dt); // Predict direction of travel
+                
+                state.y = next_y;
+                state.pe = m * g * state.y;
+                
+                // Force expected Kinetic Energy based on absolute Conservation of Energy
+                let expected_ke = state.totalInitialEnergy - state.thermal - state.pe;
+                
+                if (expected_ke <= 0) {
+                    // Ball reached apex
+                    state.ke = 0;
+                    state.y = (state.totalInitialEnergy - state.thermal) / (m * g); // Force exact height
+                    state.pe = state.totalInitialEnergy - state.thermal;
+                    state.v = 0;
+                } else {
+                    state.ke = expected_ke;
+                    state.v = current_sign * Math.sqrt(2 * expected_ke / m);
                 }
             }
         }
 
-        // ENERGY CALCULATIONS
-        state.pe = m * g * state.y;
-        state.ke = 0.5 * m * (state.v * state.v);
-
-        // DATA RECORDING
-        state.history.push({
-            pe: state.pe,
-            ke: state.ke,
-            thermal: state.thermal
-        });
-        if (state.history.length > MAX_GRAPH_POINTS) {
-            state.history.shift(); 
+        // DATA RECORDING 
+        if (speedScale > 0) {
+            state.history.push({
+                pe: state.pe,
+                ke: state.ke,
+                thermal: state.thermal
+            });
+            if (state.history.length > MAX_GRAPH_POINTS) {
+                state.history.shift(); 
+            }
         }
 
         // RENDER SIMULATION
@@ -438,13 +439,12 @@
         ctx.stroke();
 
         // RENDER GRAPHS
-        drawStackedGraph();
         drawLineGraph();
 
         // UI UPDATE
         outH.innerText = state.y.toFixed(2) + " m";
         outV.innerText = Math.abs(state.v).toFixed(2) + " m/s";
-        outTe.innerText = (state.pe + state.ke + state.thermal).toFixed(1) + " J";
+        outTe.innerText = state.totalInitialEnergy.toFixed(1) + " J"; // Perfectly static now
         outTh.innerText = state.thermal.toFixed(1) + " J";
 
         const pePct = Math.max(0, Math.min(100, (state.pe / state.totalInitialEnergy) * 100));
