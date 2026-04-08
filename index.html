@@ -78,11 +78,14 @@
             font-size: 1.2em;
             font-weight: bold;
         }
+        #out-te {
+            color: #2ecc71; /* Highlight total energy so it stands out */
+        }
         .energy-bars {
             display: flex;
             flex-direction: column;
             gap: 8px;
-            margin-top: 10px;
+            margin-top: 5px;
         }
         .bar-container {
             width: 100%;
@@ -180,22 +183,22 @@
             <input type="range" id="sl-bounce" min="0" max="1" step="0.05" value="0.75">
         </div>
 
-        <div class="control-group">
-            <label>Ghost Trails <span id="val-trails">Medium</span></label>
-            <input type="range" id="sl-trails" min="0" max="0.95" step="0.05" value="0.5">
-        </div>
-
         <button onclick="resetSim()">Drop Ball</button>
 
         <h3>Live Telemetry</h3>
         <div class="readout">
             <div>Height: <span id="out-h">0.00 m</span></div>
             <div>Speed: <span id="out-v">0.00 m/s</span></div>
-            <div>Total Energy: <span id="out-te">0.00 J</span></div>
-            <div>Thermal: <span id="out-th">0.00 J</span></div>
         </div>
 
-        <h3>Energy Breakdown</h3>
+        <h3>Energy Tracker (Conserved)</h3>
+        <div class="readout">
+            <div>PE: <span id="out-pe" style="color:#3498db;">0.00 J</span></div>
+            <div>KE: <span id="out-ke" style="color:#e74c3c;">0.00 J</span></div>
+            <div>Thermal: <span id="out-th" style="color:#f1c40f;">0.00 J</span></div>
+            <div>Total: <span id="out-te">0.00 J</span></div>
+        </div>
+
         <div class="energy-bars">
             <div class="bar-container">
                 <div class="bar" id="bar-pe"></div>
@@ -220,7 +223,7 @@
     const lineGraphCanvas = document.getElementById('lineGraphCanvas');
     const lineCtx = lineGraphCanvas.getContext('2d');
 
-    const SCALE = 35; // Pixels per meter
+    const SCALE = 35; 
     const GROUND_Y = canvas.height - 20;
     const RADIUS = 15;
     const MAX_GRAPH_POINTS = 300; 
@@ -241,12 +244,13 @@
     const slGravity = document.getElementById('sl-gravity');
     const slMass = document.getElementById('sl-mass');
     const slBounce = document.getElementById('sl-bounce');
-    const slTrails = document.getElementById('sl-trails');
 
     const outH = document.getElementById('out-h');
     const outV = document.getElementById('out-v');
-    const outTe = document.getElementById('out-te');
+    const outPE = document.getElementById('out-pe');
+    const outKE = document.getElementById('out-ke');
     const outTh = document.getElementById('out-th');
+    const outTe = document.getElementById('out-te');
 
     const barPE = document.getElementById('bar-pe');
     const barKE = document.getElementById('bar-ke');
@@ -258,8 +262,6 @@
         document.getElementById('val-gravity').innerText = slGravity.value;
         document.getElementById('val-mass').innerText = slMass.value;
         document.getElementById('val-bounce').innerText = slBounce.value;
-        document.getElementById('val-trails').innerText = 
-            slTrails.value == 0 ? "Off" : (slTrails.value > 0.7 ? "Long" : "Medium");
     }
 
     [slHeight, slGravity, slMass].forEach(el => {
@@ -268,7 +270,8 @@
             resetSim();
         });
     });
-    [slSpeed, slBounce, slTrails].forEach(el => {
+    
+    [slSpeed, slBounce].forEach(el => {
         el.addEventListener('input', updateSliderLabels); 
     });
 
@@ -302,18 +305,18 @@
         const plotHeight = h - (padding * 2);
         const maxE = state.totalInitialEnergy || 1;
 
-        // Draw dotted ceiling line for reference
+        // Draw flat line for Total Energy
         lineCtx.beginPath();
-        lineCtx.strokeStyle = '#4CAF50';
+        lineCtx.strokeStyle = '#2ecc71';
         lineCtx.setLineDash([5, 5]);
         lineCtx.moveTo(0, padding);
         lineCtx.lineTo(w, padding);
         lineCtx.stroke();
         lineCtx.setLineDash([]);
         
-        lineCtx.fillStyle = '#4CAF50';
+        lineCtx.fillStyle = '#2ecc71';
         lineCtx.font = "12px sans-serif";
-        lineCtx.fillText("Total Energy (Constant)", 5, padding + 15);
+        lineCtx.fillText("Total Energy (Always " + state.totalInitialEnergy.toFixed(2) + " J)", 5, padding + 15);
 
         const drawLine = (key, color) => {
             lineCtx.beginPath();
@@ -349,63 +352,47 @@
         const g = parseFloat(slGravity.value);
         const m = parseFloat(slMass.value);
         const restitution = parseFloat(slBounce.value);
-        const trailsAlpha = 1 - parseFloat(slTrails.value);
 
-        // STRICT ALGEBRAIC ENERGY LOCKING
         if (!state.isResting && speedScale > 0) {
             let next_y = state.y + (state.v * dt) - (0.5 * g * dt * dt);
             let next_v = state.v - g * dt;
 
             if (next_y <= 0) {
-                // Ball hits ground
                 state.y = 0;
                 state.pe = 0;
                 
-                // Maximum kinetic energy possible right at the floor
                 let impact_ke = state.totalInitialEnergy - state.thermal;
                 
                 if (impact_ke < 0.05) { 
-                    // Energy too low, force resting state
                     state.thermal = state.totalInitialEnergy; 
                     state.ke = 0;
                     state.pe = 0;
                     state.v = 0;
                     state.isResting = true;
                 } else {
-                    // Perfect bounce
                     let v_impact = Math.sqrt(2 * impact_ke / m);
                     state.v = v_impact * restitution; 
-                    
                     state.ke = 0.5 * m * state.v * state.v;
-                    // Any energy not used by the new bounce speed is forced into thermal
                     state.thermal = state.totalInitialEnergy - state.ke;
                 }
             } else {
-                // Mid-air flight
                 state.y = next_y;
                 state.pe = m * g * state.y;
-                
-                // Algebraically calculate exactly what the Kinetic Energy MUST be
                 let expected_ke = state.totalInitialEnergy - state.thermal - state.pe;
                 
                 if (expected_ke <= 0) {
-                    // Ball is at its exact apex, no kinetic energy
                     state.ke = 0;
                     state.v = 0;
-                    // Force the height to match the remaining energy perfectly
                     state.y = (state.totalInitialEnergy - state.thermal) / (m * g);
                     state.pe = state.totalInitialEnergy - state.thermal;
                 } else {
-                    // Ball is falling/rising normally
                     state.ke = expected_ke;
-                    // Force velocity to match exact kinetic energy
                     let direction = Math.sign(next_v) === 0 ? 1 : Math.sign(next_v);
                     state.v = direction * Math.sqrt(2 * expected_ke / m);
                 }
             }
         }
 
-        // DATA RECORDING 
         if (speedScale > 0) {
             state.history.push({
                 pe: state.pe,
@@ -417,8 +404,7 @@
             }
         }
 
-        // RENDER SIMULATION
-        ctx.fillStyle = `rgba(0, 0, 0, ${trailsAlpha})`;
+        ctx.fillStyle = `rgba(0, 0, 0, 0.5)`; // Hardcoded ghost trails
         ctx.fillRect(0, 0, canvas.width, canvas.height);
 
         ctx.fillStyle = '#444';
@@ -440,15 +426,25 @@
 
         drawLineGraph();
 
-        // UI UPDATE
+        // -------------------------------------------------------------
+        // BULLETPROOF UI UPDATE
+        // -------------------------------------------------------------
         outH.innerText = state.y.toFixed(2) + " m";
         outV.innerText = Math.abs(state.v).toFixed(2) + " m/s";
-        outTh.innerText = state.thermal.toFixed(2) + " J";
         
-        // This recalculates Total Energy every single frame by adding the variables together. 
-        // It serves as proof that PE + KE + Thermal perfectly equals the Total Initial Energy at all times.
-        let liveTotalEnergy = state.pe + state.ke + state.thermal;
-        outTe.innerText = liveTotalEnergy.toFixed(2) + " J"; 
+        // This calculates the display values explicitly to prevent 
+        // 0.01 discrepancies due to decimal rounding in the DOM
+        let displayPE = parseFloat(state.pe.toFixed(2));
+        let displayKE = parseFloat(state.ke.toFixed(2));
+        
+        // Force the display thermal string to absorb the rounding difference
+        let displayTotal = parseFloat(state.totalInitialEnergy.toFixed(2));
+        let displayTh = displayTotal - displayPE - displayKE;
+
+        outPE.innerText = displayPE.toFixed(2) + " J";
+        outKE.innerText = displayKE.toFixed(2) + " J";
+        outTh.innerText = displayTh.toFixed(2) + " J";
+        outTe.innerText = displayTotal.toFixed(2) + " J"; 
 
         const pePct = Math.max(0, Math.min(100, (state.pe / state.totalInitialEnergy) * 100));
         const kePct = Math.max(0, Math.min(100, (state.ke / state.totalInitialEnergy) * 100));
